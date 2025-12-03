@@ -120,6 +120,7 @@ class SequentialTextView: NSTextView {
         let range = selectedRange()
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: range.location)
         var lineRange = NSRange()
+        layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange)
         
         log(" > View State: Range=\(range), LineStart=\(lineRange.location)")
         log(" > Manager State Before: X=\(selectionManager?.caretManager.currentXDescription ?? "nil")")
