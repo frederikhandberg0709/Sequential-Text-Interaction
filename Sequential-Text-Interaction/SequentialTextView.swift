@@ -105,10 +105,11 @@ class SequentialTextView: NSTextView {
     override func moveUp(_ sender: Any?) {
         log("SequentialTextView: moveUp triggered")
         
+        // 1. Handle collapse & clearing
         // Check for collapse first
         if handleMultiViewCollapse(direction: .start, performMove: true) { return }
         
-        // 1. Clear other views if we aren't multi-selecting
+        // Clear other views if not multi-selecting
         clearExternalSelectionIfNecessary()
         
         guard let layoutManager = layoutManager else {
@@ -119,18 +120,17 @@ class SequentialTextView: NSTextView {
         let range = selectedRange()
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: range.location)
         var lineRange = NSRange()
-        layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange)
         
-        // 1. Check if we are on the first line
+        log(" > View State: Range=\(range), LineStart=\(lineRange.location)")
+        log(" > Manager State Before: X=\(selectionManager?.caretManager.currentXDescription ?? "nil")")
+        
+        // 3. Check if we are on the first line
         if lineRange.location == 0 {
             log("SequentialTextView: Top boundary detected. Delegating to Manager.")
             // We are at the top boundary -> Handover to Manager
             selectionManager?.handleBoundaryNavigation(from: self, direction: .up)
         } else {
-            // Internal move -> Standard behavior
-            log("SequentialTextView: Internal moveUp. Resetting X memory.")
-            // We must clear the "stored X" because the user moved naturally within the block
-            selectionManager?.caretManager.reset()
+            log("SequentialTextView: Internal Move Up using stored X.")
             super.moveUp(sender)
         }
     }
@@ -138,10 +138,11 @@ class SequentialTextView: NSTextView {
     override func moveDown(_ sender: Any?) {
         log("SequentialTextView: moveDown triggered")
         
+        // 1. Handle collapse & clearing
         // Check for collapse first
         if handleMultiViewCollapse(direction: .end, performMove: true) { return }
         
-        // 1. Clear other views if we aren't multi-selecting
+        // Clear other views if not multi-selecting
         clearExternalSelectionIfNecessary()
         
         guard let layoutManager = layoutManager else {
@@ -153,6 +154,9 @@ class SequentialTextView: NSTextView {
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: range.location)
         var lineRange = NSRange()
         layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange)
+        
+        log(" > View State: Range=\(range), LineStart=\(lineRange.location)")
+        log(" > Manager State Before: X=\(selectionManager?.caretManager.currentXDescription ?? "nil")")
         
         // 1. Check if we are on the last line
         let isLastLine = NSMaxRange(lineRange) >= layoutManager.numberOfGlyphs
@@ -162,35 +166,53 @@ class SequentialTextView: NSTextView {
             // We are at the bottom boundary -> Handover to Manager
             selectionManager?.handleBoundaryNavigation(from: self, direction: .down)
         } else {
-            log("SequentialTextView: Internal moveDown. Resetting X memory.")
-            selectionManager?.caretManager.reset()
+            log("SequentialTextView: Internal Move Down using stored X.")
             super.moveDown(sender)
         }
     }
     
     override func moveLeft(_ sender: Any?) {
+        // 1. Handle selection collapse
         // Left arrow collapses to Start, but DOES NOT perform an extra move
         // (Standard behavior: Left Arrow on selection puts caret at start of selection)
         if handleMultiViewCollapse(direction: .start, performMove: false) { return }
         
-        // 1. Clear other views if we aren't multi-selecting
+        // Clear other views if not multi-selecting
         clearExternalSelectionIfNecessary()
         
-        // 2. Reset vertical memory (if we move left/right, the "X" memory is invalid)
+        // 2. Check for Start Boundary
+        // We only jump views if the selection length is 0.
+        // If we have a selection at index 0, standard behavior is to collapse it, not jump.
+        if selectedRange().location == 0 && selectedRange().length == 0 {
+            log("SequentialTextView: Left boundary detected. Delegating to Manager.")
+            selectionManager?.handleBoundaryNavigation(from: self, direction: .left)
+            return
+        }
+        
+        // 3. Reset vertical memory (if moving left/right, the "X" memory is invalid)
         selectionManager?.caretManager.reset()
         
         super.moveLeft(sender)
     }
     
     override func moveRight(_ sender: Any?) {
+        // 1. Handle selection collapse
         // Right arrow collapses to End, but DOES NOT perform an extra move
         // (Standard behavior: Right Arrow on selection puts caret at end of selection)
         if handleMultiViewCollapse(direction: .end, performMove: false) { return }
         
-        // 1. Clear other views if we aren't multi-selecting
+        // Clear other views if not multi-selecting
         clearExternalSelectionIfNecessary()
         
-        // 2. Reset vertical memory
+        // 2. Check for End Boundary
+        // Note: string.count is the index *after* the last character
+        if selectedRange().location == string.count && selectedRange().length == 0 {
+            log("SequentialTextView: Right boundary detected. Delegating to Manager.")
+            selectionManager?.handleBoundaryNavigation(from: self, direction: .right)
+            return
+        }
+        
+        // 3. Reset vertical memory (if moving left/right, the "X" memory is invalid)
         selectionManager?.caretManager.reset()
         
         super.moveRight(sender)

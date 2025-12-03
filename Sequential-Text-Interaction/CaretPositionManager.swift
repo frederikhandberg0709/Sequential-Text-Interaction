@@ -213,6 +213,7 @@ class CaretPositionManager {
     
     func reset() {
         log("RESET: Clearing stored X position - called from: \(Thread.callStackSymbols[1])")
+        log(" [CaretManager] RESET: Clearing X (was \(currentXDescription)). Source: \(Thread.callStackSymbols[1].split(separator: "$").last ?? "Unknown")")
         desiredXPosition = nil
     }
     
