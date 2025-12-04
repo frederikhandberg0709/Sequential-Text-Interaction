@@ -11,9 +11,15 @@ import Observation
 struct SequentialBlockEditor: View {
     // The single source of truth for the list of blocks
     @State private var blocks: [Block] = [
-        Block(text: "Header\nThis is the first block."),
-        Block(text: "Body\nThis is the second block. You can select across this gap."),
-        Block(text: "Footer\nThis is the third block.")
+        Block(text: "Short line.\nThis is a significantly longer line that extends far to the right.\nTiny.\nBack to a long line to see if the caret remembered the X position from line 2.\nEnd."),
+        Block(text: "Start here at the very end of this long sentence."),
+        Block(text: "Tiny."),
+        Block(text: "End here. Ideally the caret is far to the right."),
+        Block(text: "WWWWWWWWWW"),
+        Block(text: "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"),
+        Block(text: "WWWWWWWWWW"),
+        Block(text: "Body\nThis is the second block. You can select across this gap - that's pretty cool.\nasdas\nMore text here.asd\nasd"),
+        Block(text: "Footerad\nThis is the third block.")
     ]
     
     @State private var selectionManager = SequentialTextViewManager()
@@ -64,7 +70,7 @@ struct SequentialBlockView: NSViewRepresentable {
         // Set initial text
         textView.textStorage?.setAttributedString(text)
         
-        // IMPORTANT: Register with the manager
+        // Register with the manager
         manager.register(textView)
         
         textView.delegate = context.coordinator

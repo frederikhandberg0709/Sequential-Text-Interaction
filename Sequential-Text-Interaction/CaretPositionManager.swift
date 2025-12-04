@@ -1,4 +1,5 @@
 //
+//
 //  CaretPositionManager.swift
 //  Sequential-Text-Interaction
 //
@@ -12,90 +13,65 @@ import Observation
 @Observable
 class CaretPositionManager {
     private var desiredXPosition: CGFloat?
-    private(set) var isNavigatingUp: Bool = false
-    private(set) var isNavigatingDown: Bool = false
-    private(set) var isNavigatingLeft: Bool = false
-    private(set) var isNavigatingRight: Bool = false
     
-    func setNavigationDirection(up: Bool = false, down: Bool = false, left: Bool = false, right: Bool = false) {
-        log("CaretPositionManager.setNavigationDirection: up=\(up), down=\(down), left=\(left), right=\(right)")
-        isNavigatingUp = up
-        isNavigatingDown = down
-        isNavigatingLeft = left
-        isNavigatingRight = right
+    // Debugging helper
+    var currentXDescription: String {
+        if let x = desiredXPosition { return String(format: "%.2f", x) }
+        return "nil"
     }
     
-    func clearNavigationDirection() {
-        log("CaretPositionManager.clearNavigationDirection")
-        isNavigatingUp = false
-        isNavigatingDown = false
-        isNavigatingLeft = false
-        isNavigatingRight = false
+    // MARK: - State Management
+    
+    func reset() {
+        if desiredXPosition != nil {
+            log(" [CaretManager] RESET: Clearing X (was \(currentXDescription)).")
+            desiredXPosition = nil
+        }
     }
     
-    var shouldPositionAtEnd: Bool {
-        return isNavigatingUp || isNavigatingLeft
-    }
-    
-    var shouldPositionAtBeginning: Bool {
-        return isNavigatingDown || isNavigatingRight
+    var hasStoredPosition: Bool {
+        return desiredXPosition != nil
     }
     
     func storeCurrentXPosition(from textView: NSTextView) {
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer
-        else {
-            log("storeCurrentXPosition: No layout manager or text container")
-            desiredXPosition = nil
-            return
-        }
+        else { return }
         
         let selectedRange = textView.selectedRange()
+        
+        // Only store X if we have a pure insertion point (length 0)
         guard selectedRange.length == 0 else {
-            log("storeCurrentXPosition: Selection length > 0, not storing")
             desiredXPosition = nil
             return
         }
         
         layoutManager.ensureLayout(for: textContainer)
         
+        // 1. Handle Empty String
         if textView.string.isEmpty {
-            log("storeCurrentXPosition: Empty text, storing X=0")
             desiredXPosition = 0
+            log("storeCurrentXPosition: Empty text, storing X=0")
             return
         }
         
-        // Handle caret at end of text
+        // 2. Handle End of Text
         if selectedRange.location >= textView.string.count {
-            // Get the last character's position
             let lastCharIndex = max(0, textView.string.count - 1)
             let glyphIndex = layoutManager.glyphIndexForCharacter(at: lastCharIndex)
-            
-            guard glyphIndex < layoutManager.numberOfGlyphs else {
-                log("storeCurrentXPosition: At end, storing X=0")
-                desiredXPosition = 0
-                return
-            }
             
             let rect = layoutManager.boundingRect(
                 forGlyphRange: NSRange(location: glyphIndex, length: 1),
                 in: textContainer
             )
             
-            // Store the position at the END of the last character
             desiredXPosition = rect.maxX
             log("storeCurrentXPosition: At end of text, stored X=\(rect.maxX)")
             return
         }
         
+        // 3. Handle Normal Character
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: selectedRange.location)
-        
-        guard glyphIndex < layoutManager.numberOfGlyphs else {
-            log("storeCurrentXPosition: Glyph index out of bounds, storing X=0")
-            desiredXPosition = 0
-            return
-        }
-        
         let rect = layoutManager.boundingRect(
             forGlyphRange: NSRange(location: glyphIndex, length: 1),
             in: textContainer
@@ -105,6 +81,70 @@ class CaretPositionManager {
         log("storeCurrentXPosition: Stored X=\(rect.origin.x) at character \(selectedRange.location)")
     }
     
+    // MARK: - Navigation Logic
+    
+    /// Calculates the target index for moving Up/Down within the SAME view
+    func calculateInternalVerticalMove(
+        in textView: NSTextView,
+        direction: SequentialNavigationDirection
+    ) -> Int? {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              let storedX = desiredXPosition else {
+            return nil
+        }
+        
+        let selectedRange = textView.selectedRange()
+        
+        // Robustly determine current line
+        // If at end of string, peek back one char to get the line that "owns" the end.
+        let probeIndex = (selectedRange.location == textView.string.count && selectedRange.location > 0) ? selectedRange.location - 1 : selectedRange.location
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: probeIndex)
+        
+        // Get current line geometry
+        var currentLineRange = NSRange(location: 0, length: 0)
+        let currentLineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &currentLineRange)
+        
+        // Determine the target glyph index to find the new line
+        var targetProbeGlyphIndex: Int
+        
+        if direction == .up {
+            // The character immediately before the current line starts
+            targetProbeGlyphIndex = currentLineRange.location - 1
+            if targetProbeGlyphIndex < 0 { return nil } // Top boundary
+        } else {
+            // The character immediately after the current line ends
+            targetProbeGlyphIndex = NSMaxRange(currentLineRange)
+            if targetProbeGlyphIndex >= layoutManager.numberOfGlyphs { return nil } // Bottom boundary
+        }
+        
+        // Get Target Line Geometry
+        var targetLineRange = NSRange(location: 0, length: 0)
+        let targetLineRect = layoutManager.lineFragmentRect(
+            forGlyphAt: targetProbeGlyphIndex,
+            effectiveRange: &targetLineRange
+        )
+        
+        // Safety: If we mapped to the same line (e.g., probe wasn't far enough), abort
+        if targetLineRect.origin.y == currentLineRect.origin.y {
+            return nil
+        }
+        
+        let charRange = layoutManager.characterRange(forGlyphRange: targetLineRange, actualGlyphRange: nil)
+        let lineString = (textView.string as NSString).substring(with: charRange).trimmingCharacters(in: .newlines)
+        log(" [Calc] Moving \(direction == .up ? "UP" : "DOWN") from LineY=\(Int(currentLineRect.minY)) to LineY=\(Int(targetLineRect.minY))")
+        log(" [Calc] Target Line Text: '\(lineString)'")
+        log(" [Calc] Target Rect: \(targetLineRect)")
+        
+        return indexForPosition(
+            x: storedX,
+            lineRect: targetLineRect,
+            lineGlyphRange: targetLineRange,
+            in: textView
+        )
+    }
+
+    /// Calculates the target index for moving INTO this view from another view
     func calculateCaretPosition(
         in textView: NSTextView,
         preferEnd: Bool = false
@@ -112,46 +152,57 @@ class CaretPositionManager {
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer,
               let storedX = desiredXPosition else {
-            log("calculateCaretPosition: No stored X, returning \(preferEnd ? "end" : "start")")
             return preferEnd ? textView.string.count : 0
         }
         
         layoutManager.ensureLayout(for: textContainer)
         
-        if textView.string.isEmpty {
-            log("calculateCaretPosition: Empty text, returning 0")
-            return 0
-        }
+        if textView.string.isEmpty { return 0 }
         
-        // Determine which line to target
+        // Determine Target Line (First or Last)
         let targetLineGlyphIndex: Int
         if preferEnd {
-            // Navigating UP - target the LAST line
             let numberOfGlyphs = layoutManager.numberOfGlyphs
-            guard numberOfGlyphs > 0 else {
-                log("calculateCaretPosition: No glyphs, returning \(textView.string.count)")
-                return textView.string.count
-            }
+            guard numberOfGlyphs > 0 else { return textView.string.count }
             targetLineGlyphIndex = numberOfGlyphs - 1
-            log("calculateCaretPosition: preferEnd=true, targeting last line")
         } else {
-            // Navigating DOWN - target the FIRST line
             targetLineGlyphIndex = 0
-            log("calculateCaretPosition: preferEnd=false, targeting first line")
         }
         
-        // Get the line fragment rect for the target line
+        // Get Line Geometry
         var lineGlyphRange = NSRange(location: 0, length: 0)
         let lineFragmentRect = layoutManager.lineFragmentRect(
             forGlyphAt: targetLineGlyphIndex,
             effectiveRange: &lineGlyphRange
         )
         
-        // Use the middle of the line for Y coordinate
-        let yPosition = lineFragmentRect.minY + (lineFragmentRect.height * 0.5)
-        let point = CGPoint(x: storedX, y: yPosition)
+        let charRange = layoutManager.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+        let lineString = (textView.string as NSString).substring(with: charRange).trimmingCharacters(in: .newlines)
+        log(" [Calc] Boundary Enter: Target Line='\(lineString)'")
         
-        // Get character index at this point
+        return indexForPosition(
+            x: storedX,
+            lineRect: lineFragmentRect,
+            lineGlyphRange: lineGlyphRange,
+            in: textView
+        )
+    }
+    
+    // MARK: - Core Calculation
+    
+    private func indexForPosition(
+        x: CGFloat,
+        lineRect: CGRect,
+        lineGlyphRange: NSRange,
+        in textView: NSTextView
+    ) -> Int {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return 0 }
+        
+        // 1. Find the character index closest to Point(X, CenterY)
+        let yPosition = lineRect.minY + (lineRect.height * 0.5)
+        let point = CGPoint(x: x, y: yPosition)
+        
         var fraction: CGFloat = 0
         var characterIndex = layoutManager.characterIndex(
             for: point,
@@ -159,65 +210,63 @@ class CaretPositionManager {
             fractionOfDistanceBetweenInsertionPoints: &fraction
         )
         
-        // Verify we're actually on the target line and handle edge cases
-        let charGlyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
-        
-        // Check if the character is within the target line's glyph range
-        if charGlyphIndex < lineGlyphRange.location || charGlyphIndex >= lineGlyphRange.location + lineGlyphRange.length {
-            // Character index is outside target line, adjust it
-            if preferEnd {
-                // For last line, convert last glyph to character index
-                characterIndex = layoutManager.characterIndexForGlyph(at: lineGlyphRange.location + lineGlyphRange.length - 1)
-            } else {
-                // For first line, use first character
-                characterIndex = layoutManager.characterIndexForGlyph(at: lineGlyphRange.location)
-            }
-            log("Adjusted character index to stay within target line: \(characterIndex)")
+        // 2. Snap to nearest boundary (The "0 vs 1" Fix)
+        if fraction >= 0.5 {
+            characterIndex += 1
         }
         
-        // Get the actual character range for this line
+        // 3. Clamp to string bounds
+        characterIndex = min(max(0, characterIndex), textView.string.count)
+        
+        // 4. Validate we are visually on the correct line
+        // Sometimes snapping to the "nearest" index jumps us to the start of the *next* line.
+        // We check if the resulting glyph is within our target line's glyph range.
+        
+        // Get glyph index for the calculated char
+        // Note: If charIndex == string.count, we use the last valid glyph to check range
+        let checkIndex = (characterIndex == textView.string.count) ? max(0, characterIndex - 1) : characterIndex
+        let charGlyphIndex = layoutManager.glyphIndexForCharacter(at: checkIndex)
+        
+        let isInsideLine = charGlyphIndex >= lineGlyphRange.location &&
+                           charGlyphIndex < (lineGlyphRange.location + lineGlyphRange.length)
+        
+        if !isInsideLine {
+            // We drifted. Force snap to the end of the target line.
+            let endOfLineGlyph = lineGlyphRange.location + lineGlyphRange.length - 1
+            characterIndex = layoutManager.characterIndexForGlyph(at: endOfLineGlyph)
+            
+            // If the line ends with a newline, we usually want to be before it (visually)
+            // unless we are specifically targeting the very end.
+            if characterIndex < textView.string.count && textView.string[textView.string.index(textView.string.startIndex, offsetBy: characterIndex)] == "\n" {
+                // Keep index as is (before newline)
+            } else {
+                characterIndex += 1
+            }
+        }
+        
+        // 5. "Phantom X" Handling (End of Line Snap)
+        // If stored X is way past the visual end of the line, ensure we snap to the very end.
         let lineCharRange = layoutManager.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
         
-        // Handle case where stored X is beyond the line's content
-        // This happens when the caret was at the end of a longer line
         if characterIndex >= lineCharRange.location && characterIndex < lineCharRange.location + lineCharRange.length {
-            // Check if we should snap to end of line
             let lastCharInLine = lineCharRange.location + lineCharRange.length - 1
-            
             if lastCharInLine >= 0 && lastCharInLine < textView.string.count {
                 let glyphIndex = layoutManager.glyphIndexForCharacter(at: lastCharInLine)
-                let glyphRect = layoutManager.boundingRect(
-                    forGlyphRange: NSRange(location: glyphIndex, length: 1),
-                    in: textContainer
-                )
+                let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
                 
-                // If stored X is beyond the last character, snap to end of line
-                if storedX > glyphRect.maxX {
+                if x > glyphRect.maxX {
                     characterIndex = lastCharInLine
-                    // Exclude trailing newline
                     let charIndex = textView.string.index(textView.string.startIndex, offsetBy: characterIndex)
-                    if textView.string[charIndex] == "\n" && characterIndex > lineCharRange.location {
-                        characterIndex -= 1
+                    
+                    // If not a newline, step past it
+                    if textView.string[charIndex] != "\n" {
+                        characterIndex += 1
                     }
-                    log("X beyond line content, snapping to end: \(characterIndex)")
+                    log("X > Line Width. Snapped to end: \(characterIndex)")
                 }
             }
         }
         
-        let clampedIndex = min(max(0, characterIndex), textView.string.count)
-        
-        log("calculateCaretPosition: X=\(storedX), Y=\(yPosition) -> character \(clampedIndex)")
-        
-        return clampedIndex
-    }
-    
-    func reset() {
-        log("RESET: Clearing stored X position - called from: \(Thread.callStackSymbols[1])")
-        log(" [CaretManager] RESET: Clearing X (was \(currentXDescription)). Source: \(Thread.callStackSymbols[1].split(separator: "$").last ?? "Unknown")")
-        desiredXPosition = nil
-    }
-    
-    var  hasStoredPosition: Bool {
-        return desiredXPosition != nil
+        return characterIndex
     }
 }

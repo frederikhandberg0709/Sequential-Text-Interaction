@@ -118,7 +118,8 @@ class SequentialTextView: NSTextView {
         }
         
         let range = selectedRange()
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: range.location)
+        let indexToProbe = (range.location == string.count && range.location > 0) ? range.location - 1 : range.location
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: indexToProbe)
         var lineRange = NSRange()
         layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange)
         
@@ -131,8 +132,23 @@ class SequentialTextView: NSTextView {
             // We are at the top boundary -> Handover to Manager
             selectionManager?.handleBoundaryNavigation(from: self, direction: .up)
         } else {
-            log("SequentialTextView: Internal Move Up using stored X.")
-            super.moveUp(sender)
+            log("SequentialTextView: Internal Move Up.")
+            
+            // 1. Ensure we have a stored X (capture it now if this is the start of a sequence)
+            if let manager = selectionManager, !manager.caretManager.hasStoredPosition {
+                manager.caretManager.storeCurrentXPosition(from: self)
+            }
+            
+            // 2. Attempt manual move
+            if let manager = selectionManager,
+               let targetIndex = manager.caretManager.calculateInternalVerticalMove(in: self, direction: .up) {
+                log(" > Manual Move to index: \(targetIndex)")
+                setSelectedRange(NSRange(location: targetIndex, length: 0))
+                scrollRangeToVisible(NSRange(location: targetIndex, length: 0))
+            } else {
+                // Fallback if manual calculation fails (shouldn't happen)
+                super.moveUp(sender)
+            }
         }
     }
     
@@ -152,7 +168,8 @@ class SequentialTextView: NSTextView {
         }
         
         let range = selectedRange()
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: range.location)
+        let indexToProbe = (range.location == string.count && range.location > 0) ? range.location - 1 : range.location
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: indexToProbe)
         var lineRange = NSRange()
         layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange)
         
@@ -167,8 +184,22 @@ class SequentialTextView: NSTextView {
             // We are at the bottom boundary -> Handover to Manager
             selectionManager?.handleBoundaryNavigation(from: self, direction: .down)
         } else {
-            log("SequentialTextView: Internal Move Down using stored X.")
-            super.moveDown(sender)
+            log("SequentialTextView: Internal Move Down.")
+            
+            // 1. Ensure we have a stored X
+            if let manager = selectionManager, !manager.caretManager.hasStoredPosition {
+                manager.caretManager.storeCurrentXPosition(from: self)
+            }
+            
+            // 2. Attempt manual move
+            if let manager = selectionManager,
+               let targetIndex = manager.caretManager.calculateInternalVerticalMove(in: self, direction: .down) {
+                log(" > Manual Move to index: \(targetIndex)")
+                setSelectedRange(NSRange(location: targetIndex, length: 0))
+                scrollRangeToVisible(NSRange(location: targetIndex, length: 0))
+            } else {
+                super.moveDown(sender)
+            }
         }
     }
     

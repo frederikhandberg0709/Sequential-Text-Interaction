@@ -12,6 +12,8 @@ import Combine
 enum SequentialNavigationDirection {
     case up
     case down
+    case left
+    case right
 }
 
 @Observable
@@ -76,17 +78,44 @@ class SequentialTextViewManager {
             return
         }
         
+        log(" [Manager] Boundary Navigation: Direction \(direction) from View \(currentIndex)")
+        
         // 1. Identify the Target View
         var targetView: SequentialTextView?
+        
         switch direction {
         case .up:
             if currentIndex > 0 {
                 targetView = textViews[currentIndex - 1]
+            } else {
+                log(" [Manager] Global Top Hit. Resetting Manager.")
+                // BOUNDARY HIT: Top of the first view
+                // Move caret to absolute start (Index 0)
+                view.setSelectedRange(NSRange(location: 0, length: 0))
+                view.scrollRangeToVisible(NSRange(location: 0, length: 0))
+                caretManager.reset() // Clear vertical X memory
+                return
             }
+            
         case .down:
             if currentIndex < textViews.count - 1 {
                 targetView = textViews[currentIndex + 1]
+            } else {
+                log(" [Manager] Global Bottom Hit. Resetting Manager.")
+                // BOUNDARY HIT: Bottom of the last view
+                // Move caret to absolute end
+                let end = view.string.count
+                view.setSelectedRange(NSRange(location: end, length: 0))
+                view.scrollRangeToVisible(NSRange(location: end, length: 0))
+                caretManager.reset() // Clear vertical X memory
+                return
             }
+            
+        case .left:
+            if currentIndex > 0 { targetView = textViews[currentIndex - 1] }
+            
+        case .right:
+            if currentIndex < textViews.count - 1 { targetView = textViews[currentIndex + 1] }
         }
         
         guard let target = targetView else {
@@ -96,29 +125,41 @@ class SequentialTextViewManager {
         
         log("handleBoundaryNavigation: Moving from view \(currentIndex) to view \(textViews.firstIndex(of: target) ?? -1)")
         
-        // 2. Store X Position logic
-        // If we haven't stored the X position yet (meaning this is the first jump in a sequence),
-        // we store it from the *current* view before leaving it.
-        if !caretManager.hasStoredPosition {
-            log("handleBoundaryNavigation: Storing current X position from source view")
-            caretManager.storeCurrentXPosition(from: view)
+        // Store X position if needed (only for Up/Down)
+        if (direction == .up || direction == .down) {
+            if !caretManager.hasStoredPosition {
+                log(" [Manager] No X stored. Asking view to store current X now.")
+                caretManager.storeCurrentXPosition(from: view)
+            } else {
+                log(" [Manager] X already stored (\(caretManager.currentXDescription)). Reusing it.")
+            }
         } else {
-            log("handleBoundaryNavigation: Using existing stored X position")
+            // Horizontal moves kill vertical memory
+            caretManager.reset()
         }
         
-        // 3. Focus the Target
+        // 2. Focus the Target
         target.window?.makeFirstResponder(target)
         
-        // 4. Calculate Insertion Point
-        // If moving UP, we want the caret at the END (Bottom) of the previous block.
-        // If moving DOWN, we want the caret at the BEGINNING (Top) of the next block.
-        let preferEnd = (direction == .up)
+        // Determine New Insertion Index
+        let newIndex: Int
+        switch direction {
+        case .up:
+            log("Moving up")
+            newIndex = caretManager.calculateCaretPosition(in: target, preferEnd: true)
+        case .down:
+            log("Moving down")
+            newIndex = caretManager.calculateCaretPosition(in: target, preferEnd: false)
+        case .left:
+            log("Moving left")
+            newIndex = target.string.count
+        case .right:
+            log("Moving right")
+            // Right Arrow: Jump to the very START of the next block
+            newIndex = 0
+        }
         
-        // Use the logic from CaretPositionManager to find the right index based on visual X coord
-        let newIndex = caretManager.calculateCaretPosition(in: target, preferEnd: preferEnd)
-        log("handleBoundaryNavigation: Calculated new index: \(newIndex) (preferEnd: \(preferEnd))")
-        
-        // 5. Place Caret
+        // 3. Place Caret
         target.setSelectedRange(NSRange(location: newIndex, length: 0))
         target.scrollRangeToVisible(NSRange(location: newIndex, length: 0))
     }
