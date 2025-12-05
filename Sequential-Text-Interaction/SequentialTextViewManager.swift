@@ -69,7 +69,7 @@ class SequentialTextViewManager {
         log("Manager: Sorted views")
     }
     
-    // MARK: - Functionality A: Caret Navigation (Arrow Keys)
+    // MARK: - Caret Navigation (Arrow Keys)
     
     /// Called by a view when the caret hits a boundary (Top of view + Up Arrow, or Bottom + Down Arrow)
     func handleBoundaryNavigation(from view: SequentialTextView, direction: SequentialNavigationDirection) {
@@ -166,7 +166,7 @@ class SequentialTextViewManager {
         target.scrollRangeToVisible(NSRange(location: newIndex, length: 0))
     }
     
-    // MARK: - Functionality B: Mouse Selection (Dragging)
+    // MARK: - Mouse Selection (Dragging)
     
     func handleMouseDown(_ event: NSEvent, in view: SequentialTextView) {
         log("handleMouseDown: Processing mouse down in view")
@@ -244,6 +244,79 @@ class SequentialTextViewManager {
         
         updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
                              to: clickedView, currentIndex: clickIndex)
+    }
+    
+    // MARK: - Deletion
+    
+    func handleMultiViewDelete() {
+        sortViewsIfNeeded()
+        
+        // 1. Identify participating views
+        // We filter for views that actually have text selected.
+        let participatingViews = textViews.filter { $0.selectedRange().length > 0 }
+        
+        guard let firstView = participatingViews.first,
+              let lastView = participatingViews.last else {
+            return
+        }
+        
+        log("Manager: Handling Delete across \(participatingViews.count) views")
+        
+        // 2. Capture Content to Preserve
+        //   - Prefix: Everything in the first view BEFORE the selection
+        //   - Suffix: Everything in the last view AFTER the selection
+        let startRange = firstView.selectedRange()
+        let endRange = lastView.selectedRange()
+        
+        let prefixRange = NSRange(location: 0, length: startRange.location)
+        let prefix = (firstView.string as NSString).substring(with: prefixRange)
+        
+        let suffixLocation = endRange.location + endRange.length
+        let suffixLength = lastView.string.count - suffixLocation
+        let suffix = (lastView.string as NSString).substring(with: NSRange(location: suffixLocation, length: suffixLength))
+        
+        // 3. Execute Merge
+        //   The first view absorbs the suffix of the last view.
+        //   All other participating views (including the last one) are cleared.
+        
+        // A. Update First View (The Survivor)
+        let mergedContent = prefix + suffix
+        if let storage = firstView.textStorage {
+            // Using replaceCharacters to maintain some semblance of text system integrity
+            storage.replaceCharacters(in: NSRange(location: 0, length: firstView.string.count),
+                                      with: mergedContent)
+        } else {
+            firstView.string = mergedContent
+        }
+        
+        // B. Clear Other Views
+        for view in participatingViews where view != firstView {
+            if let storage = view.textStorage {
+                storage.replaceCharacters(in: NSRange(location: 0, length: view.string.count),
+                                          with: "")
+            } else {
+                view.string = ""
+            }
+            // Reset selection for the cleared views
+            view.setSelectedRange(NSRange(location: 0, length: 0))
+        }
+        
+        // 4. Restore Selection/Focus
+        // Focus the first view
+        firstView.window?.makeFirstResponder(firstView)
+        
+        // Place caret exactly where the deletion happened (at the end of the prefix)
+        let newCaretIndex = prefix.count
+        firstView.setSelectedRange(NSRange(location: newCaretIndex, length: 0))
+        firstView.scrollRangeToVisible(NSRange(location: newCaretIndex, length: 0))
+        
+        // 5. Cleanup
+        // Ensure other views know they are no longer selected
+        clearAllSelections(except: firstView)
+        
+        // Trigger generic change handlers (important for resizing intrinsic content size)
+        firstView.didChangeText()
+        participatingViews.forEach { if $0 != firstView { $0.didChangeText() } }
     }
     
     // MARK: - Helper: Chain Selection Logic

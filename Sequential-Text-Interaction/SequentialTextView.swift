@@ -323,6 +323,20 @@ class SequentialTextView: NSTextView {
         log("TextView: Copied \(selectedText.count) characters across views")
     }
     
+    // MARK: - Deletion
+    
+    override func deleteBackward(_ sender: Any?) {
+        // Check for selection across multiple text views
+        if let manager = selectionManager, manager.hasMultiViewSelection {
+            log("SequentialTextView: Multi-view delete detected. Delegating to Manager.")
+            manager.handleMultiViewDelete()
+            return
+        }
+        
+        // Otherwise use standard behavior
+        super.deleteBackward(sender)
+    }
+    
     // MARK: - Custom Drawing
     
     override func drawBackground(in rect: NSRect) {
