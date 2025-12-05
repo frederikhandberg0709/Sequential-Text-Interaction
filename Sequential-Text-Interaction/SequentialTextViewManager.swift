@@ -35,6 +35,8 @@ class SequentialTextViewManager {
     // Timestamp to prevent SwiftUI gestures from clearing selection immediately after creation
     private var lastInteractionTime: TimeInterval = 0
     
+    var isCurrentlyDragging: Bool { isDragging }
+    
     // MARK: - Registration
     
     func register(_ textView: SequentialTextView) {
@@ -424,7 +426,7 @@ class SequentialTextViewManager {
     }
     
     /// Select All (Cmd+A) support
-    func selectAll() {
+    func selectAllViews() {
         log("selectAll: Selecting all text across views")
         for view in textViews {
             view.forceInactiveSelectionDisplay = true

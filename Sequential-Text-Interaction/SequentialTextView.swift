@@ -287,6 +287,24 @@ class SequentialTextView: NSTextView {
         super.mouseUp(with: event)
     }
     
+    // MARK: - Select All Text
+    
+    override func selectAll(_ sender: Any?) {
+        log("TextView: selectAll called")
+        
+        guard let manager = selectionManager else {
+            super.selectAll(sender)
+            return
+        }
+        
+        if manager.isCurrentlyDragging {
+            log("TextView: selectAll blocked - currently dragging")
+            return
+        }
+        
+        manager.selectAllViews()
+    }
+    
     // MARK: - Custom Drawing
     
     override func drawBackground(in rect: NSRect) {
