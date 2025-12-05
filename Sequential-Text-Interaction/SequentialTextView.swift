@@ -305,6 +305,24 @@ class SequentialTextView: NSTextView {
         manager.selectAllViews()
     }
     
+    // MARK: - Copy
+    
+    override func copy(_ sender: Any?) {
+        guard let manager = selectionManager,
+              let selectedText = manager.getSelectedText() else {
+            // Fallback to default behavior if no manager or no selection
+            super.copy(sender)
+            return
+        }
+        
+        // Put the combined text on the pasteboard
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(selectedText, forType: .string)
+        
+        log("TextView: Copied \(selectedText.count) characters across views")
+    }
+    
     // MARK: - Custom Drawing
     
     override func drawBackground(in rect: NSRect) {
