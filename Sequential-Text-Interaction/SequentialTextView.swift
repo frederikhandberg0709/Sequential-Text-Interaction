@@ -100,6 +100,29 @@ class SequentialTextView: NSTextView {
         return false
     }
     
+    // MARK: - Document Navigation (Cmd + Arrow)
+    
+    override func moveToBeginningOfDocument(_ sender: Any?) {
+        log("SequentialTextView: moveToBeginningOfDocument (Cmd+Up)")
+        
+        // 1. Clear external selection if Shift is not pressed (Navigation only)
+        // TODO: Implementing `moveToBeginningOfDocumentAndModifySelection` is required for Shift+Cmd+Up
+        clearExternalSelectionIfNecessary()
+        
+        // 2. Delegate to Manager
+        selectionManager?.handleGlobalStart()
+    }
+    
+    override func moveToEndOfDocument(_ sender: Any?) {
+        log("SequentialTextView: moveToEndOfDocument (Cmd+Down)")
+        
+        // 1. Clear external selection
+        clearExternalSelectionIfNecessary()
+        
+        // 2. Delegate to Manager
+        selectionManager?.handleGlobalEnd()
+    }
+    
     // MARK: - Character Navigation
     
     override func moveUp(_ sender: Any?) {

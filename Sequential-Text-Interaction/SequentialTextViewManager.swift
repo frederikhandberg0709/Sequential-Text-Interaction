@@ -69,6 +69,53 @@ class SequentialTextViewManager {
         log("Manager: Sorted views")
     }
     
+    // MARK: - Global Navigation
+    
+    /// Moves caret to the start of the very first text view (Cmd + Up)
+    func handleGlobalStart() {
+        sortViewsIfNeeded()
+        
+        guard let firstView = textViews.first else { return }
+        
+        log("Manager: Handling Global Start")
+        
+        // 1. Clear existing selections
+        clearAllSelections(except: nil)
+        
+        // 2. Focus the first view
+        firstView.window?.makeFirstResponder(firstView)
+        
+        // 3. Move caret to index 0
+        firstView.setSelectedRange(NSRange(location: 0, length: 0))
+        firstView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        
+        // 4. Reset vertical memory
+        caretManager.reset()
+    }
+    
+    /// Moves caret to the end of the very last text view (Cmd + Down)
+    func handleGlobalEnd() {
+        sortViewsIfNeeded()
+        
+        guard let lastView = textViews.last else { return }
+        
+        log("Manager: Handling Global End")
+        
+        // 1. Clear existing selections
+        clearAllSelections(except: nil)
+        
+        // 2. Focus the last view
+        lastView.window?.makeFirstResponder(lastView)
+        
+        // 3. Move caret to end
+        let end = lastView.string.count
+        lastView.setSelectedRange(NSRange(location: end, length: 0))
+        lastView.scrollRangeToVisible(NSRange(location: end, length: 0))
+        
+        // 4. Reset vertical memory
+        caretManager.reset()
+    }
+    
     // MARK: - Character Navigation (Arrow Keys)
     
     /// Called by a view when the caret hits a boundary (Top of view + Up Arrow, or Bottom + Down Arrow)
