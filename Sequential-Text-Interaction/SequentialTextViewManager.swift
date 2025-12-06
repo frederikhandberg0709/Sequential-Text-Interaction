@@ -69,7 +69,7 @@ class SequentialTextViewManager {
         log("Manager: Sorted views")
     }
     
-    // MARK: - Caret Navigation (Arrow Keys)
+    // MARK: - Character Navigation (Arrow Keys)
     
     /// Called by a view when the caret hits a boundary (Top of view + Up Arrow, or Bottom + Down Arrow)
     func handleBoundaryNavigation(from view: SequentialTextView, direction: SequentialNavigationDirection) {
@@ -164,6 +164,66 @@ class SequentialTextViewManager {
         // 3. Place Caret
         target.setSelectedRange(NSRange(location: newIndex, length: 0))
         target.scrollRangeToVisible(NSRange(location: newIndex, length: 0))
+    }
+    
+    // MARK: - Word Navigation
+    
+    /// Handles Option + Left Arrow crossing into the previous view.
+    /// Standard behavior dictates this should select the *start* of the last word in the previous view.
+    func handleWordLeftBoundary(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        // 1. Check if there is a previous view (Index > 0)
+        guard let currentIndex = textViews.firstIndex(of: view),
+              currentIndex > 0 else {
+                  log("No previous view to navigate to.")
+            return
+        }
+        
+        // 2. Identify Next View
+        let target = textViews[currentIndex - 1]
+        
+        // 3. Focus the Target
+        target.window?.makeFirstResponder(target)
+        
+        // 4. Perform the Word Move
+        // Placing the caret at the end of the text.
+        // Then trigger `moveWordLeft`.
+        // This calculates the jump to the start of the last word
+        let end = target.string.count
+        target.setSelectedRange(NSRange(location: end, length: 0))
+        target.moveWordLeft(nil)
+        
+        // 5. Reset vertical memory
+        caretManager.reset()
+    }
+    
+    /// Handles Option + Right Arrow crossing into the next view.
+    /// Standard behavior dictates this should select the *end* of the first word in the next view.
+    func handleWordRightBoundary(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        // 1. Check if there is a next view
+        guard let currentIndex = textViews.firstIndex(of: view),
+              currentIndex < textViews.count - 1 else {
+            log("No next view to navigate to.")
+            return
+        }
+        
+        // 2. Identify Next View
+        let target = textViews[currentIndex + 1]
+        
+        // 3. Focus the Target
+        target.window?.makeFirstResponder(target)
+        
+        // 4. Perform the Word Move
+        // Placing the caret at the start (0) and then programmatically trigger a word-right move.
+        // This leverages Cocoa's native logic to skip whitespace and find the word ending.
+        target.setSelectedRange(NSRange(location: 0, length: 0))
+        target.moveWordRight(nil)
+        
+        // 5. Reset vertical memory
+        caretManager.reset()
     }
     
     // MARK: - Mouse Selection (Dragging)

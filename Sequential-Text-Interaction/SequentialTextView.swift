@@ -100,7 +100,7 @@ class SequentialTextView: NSTextView {
         return false
     }
     
-    // MARK: - Navigation Overrides (Caret Movement)
+    // MARK: - Character Navigation
     
     override func moveUp(_ sender: Any?) {
         log("SequentialTextView: moveUp triggered")
@@ -248,6 +248,55 @@ class SequentialTextView: NSTextView {
         selectionManager?.caretManager.reset()
         
         super.moveRight(sender)
+    }
+    
+    // MARK: - Word Navigation (Option + Arrow)
+    
+    override func moveWordLeft(_ sender: Any?) {
+        log("SequentialTextView: moveWordLeft (Option+Left)")
+        
+        // 1. Handle selection collapse (Standard behavior: collapse to start)
+        if handleMultiViewCollapse(direction: .start, performMove: false) { return }
+        
+        // 2. Clear external selection if Shift is not pressed
+        clearExternalSelectionIfNecessary()
+        
+        // 3. Boundary Check: If at start, jump to previous view
+        if selectedRange().location == 0 && selectedRange().length == 0 {
+            log("SequentialTextView: Word Left boundary. Delegating to Manager.")
+            selectionManager?.handleWordLeftBoundary(from: self)
+            return
+        }
+        
+        // 4. Reset vertical memory (horizontal move invalidates X position)
+        selectionManager?.caretManager.reset()
+        
+        // 5. Native word movement
+        super.moveWordLeft(sender)
+    }
+    
+    override func moveWordRight(_ sender: Any?) {
+        log("SequentialTextView: moveWordRight (Option+Right)")
+        
+        // 1. Handle selection collapse (Standard behavior: collapse to end)
+        if handleMultiViewCollapse(direction: .end, performMove: false) { return }
+        
+        // 2. Clear external selection if Shift is not pressed
+        clearExternalSelectionIfNecessary()
+        
+        // 3. Boundary Check: If at end, jump to next view
+        // Note: string.count is the index *after* the last character
+        if selectedRange().location == string.count && selectedRange().length == 0 {
+            log("SequentialTextView: Word Right boundary. Delegating to Manager.")
+            selectionManager?.handleWordRightBoundary(from: self)
+            return
+        }
+        
+        // 4. Reset vertical memory
+        selectionManager?.caretManager.reset()
+        
+        // 5. Native word movement
+        super.moveWordRight(sender)
     }
     
     // MARK: - Mouse Overrides (Selection)
