@@ -160,6 +160,66 @@ extension SequentialTextView {
         manager.extendSelection(in: self, to: newLocation)
     }
     
+    // MARK: - Shift + Option + Arrow Keys (Word Selection Extension)
+
+    override func moveWordLeftAndModifySelection(_ sender: Any?) {
+        log("SequentialTextView: moveWordLeftAndModifySelection (Shift+Option+Left)")
+        
+        guard let manager = selectionManager else {
+            super.moveWordLeftAndModifySelection(sender)
+            return
+        }
+        
+        // 1. Establish anchor if needed
+        manager.ensureSelectionAnchor(in: self)
+        
+        // 2. Get current selection head
+        let selectionHead = manager.getSelectionHead(in: self)
+        
+        // 3. Check for boundary
+        if selectionHead == 0 {
+            log("SequentialTextView: Shift+Option+Left at boundary, delegating to manager")
+            manager.handleShiftWordLeftBoundary(from: self)
+            return
+        }
+        
+        // 4. Reset vertical memory
+        manager.caretManager.reset()
+        
+        // 5. Find previous word boundary
+        let targetIndex = findPreviousWordBoundary(from: selectionHead)
+        manager.extendSelection(in: self, to: targetIndex)
+    }
+
+    override func moveWordRightAndModifySelection(_ sender: Any?) {
+        log("SequentialTextView: moveWordRightAndModifySelection (Shift+Option+Right)")
+        
+        guard let manager = selectionManager else {
+            super.moveWordRightAndModifySelection(sender)
+            return
+        }
+        
+        // 1. Establish anchor if needed
+        manager.ensureSelectionAnchor(in: self)
+        
+        // 2. Get current selection head
+        let selectionHead = manager.getSelectionHead(in: self)
+        
+        // 3. Check for boundary
+        if selectionHead == string.count {
+            log("SequentialTextView: Shift+Option+Right at boundary, delegating to manager")
+            manager.handleShiftWordRightBoundary(from: self)
+            return
+        }
+        
+        // 4. Reset vertical memory
+        manager.caretManager.reset()
+        
+        // 5. Find next word boundary
+        let targetIndex = findNextWordBoundary(from: selectionHead)
+        manager.extendSelection(in: self, to: targetIndex)
+    }
+    
     // MARK: - Cmd+Shift+Arrow (Global Selection Extension)
     
     override func moveToBeginningOfDocumentAndModifySelection(_ sender: Any?) {
@@ -170,5 +230,61 @@ extension SequentialTextView {
     override func moveToEndOfDocumentAndModifySelection(_ sender: Any?) {
         log("SequentialTextView: moveToEndOfDocumentAndModifySelection (Cmd+Shift+Down)")
         selectionManager?.handleGlobalShiftEnd(from: self)
+    }
+    
+    // MARK: - Word Boundary Helpers
+
+    private func findPreviousWordBoundary(from index: Int) -> Int {
+        guard index > 0 else { return 0 }
+        
+        let text = string as NSString
+        var currentIndex = index
+        
+        // Skip any whitespace/punctuation at current position
+        while currentIndex > 0 {
+            let char = text.character(at: currentIndex - 1)
+            if CharacterSet.alphanumerics.contains(UnicodeScalar(char)!) {
+                break
+            }
+            currentIndex -= 1
+        }
+        
+        // Find start of current word
+        while currentIndex > 0 {
+            let char = text.character(at: currentIndex - 1)
+            if !CharacterSet.alphanumerics.contains(UnicodeScalar(char)!) {
+                break
+            }
+            currentIndex -= 1
+        }
+        
+        return currentIndex
+    }
+
+    private func findNextWordBoundary(from index: Int) -> Int {
+        guard index < string.count else { return string.count }
+        
+        let text = string as NSString
+        var currentIndex = index
+        
+        // Skip current word
+        while currentIndex < string.count {
+            let char = text.character(at: currentIndex)
+            if !CharacterSet.alphanumerics.contains(UnicodeScalar(char)!) {
+                break
+            }
+            currentIndex += 1
+        }
+        
+        // Skip whitespace/punctuation
+        while currentIndex < string.count {
+            let char = text.character(at: currentIndex)
+            if CharacterSet.alphanumerics.contains(UnicodeScalar(char)!) {
+                break
+            }
+            currentIndex += 1
+        }
+        
+        return currentIndex
     }
 }

@@ -275,6 +275,63 @@ extension SequentialTextViewManager {
                              to: target, currentIndex: targetIndex)
     }
     
+    // MARK: - Shift + Option + Arrow (Word Selection Extension)
+
+    func handleShiftWordLeftBoundary(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        guard let currentIndex = textViews.firstIndex(of: view) else { return }
+        
+        log("Manager: Shift+Option+Left boundary from view \(currentIndex)")
+        
+        ensureSelectionAnchor(in: view)
+        guard let anchor = anchorInfo else { return }
+        
+        // Move to previous view's end
+        if currentIndex > 0 {
+            let targetView = textViews[currentIndex - 1]
+            targetView.window?.makeFirstResponder(targetView)
+            
+            let targetIndex = targetView.string.count
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: targetView, currentIndex: targetIndex)
+        } else {
+            // At global start: extend to start of current view
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: view, currentIndex: 0)
+        }
+        
+        caretManager.reset()
+    }
+
+    func handleShiftWordRightBoundary(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        guard let currentIndex = textViews.firstIndex(of: view) else { return }
+        
+        log("Manager: Shift+Option+Right boundary from view \(currentIndex)")
+        
+        ensureSelectionAnchor(in: view)
+        guard let anchor = anchorInfo else { return }
+        
+        // Move to next view's start
+        if currentIndex < textViews.count - 1 {
+            let targetView = textViews[currentIndex + 1]
+            targetView.window?.makeFirstResponder(targetView)
+            
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: targetView, currentIndex: 0)
+        } else {
+            // At global end: extend to end of current view
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: view, currentIndex: view.string.count)
+        }
+        
+        caretManager.reset()
+    }
+    
+    // MARK: - Cmd+Shift+Arrow (Global Selection Extension)
+    
     /// Handles Cmd+Shift+Up (select from current position to start of document)
     func handleGlobalShiftStart(from view: SequentialTextView) {
         sortViewsIfNeeded()
