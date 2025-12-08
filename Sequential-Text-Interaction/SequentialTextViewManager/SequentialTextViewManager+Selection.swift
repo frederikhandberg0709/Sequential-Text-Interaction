@@ -1,277 +1,15 @@
 //
-//  SequentialTextViewManager.swift
+//  SequentialTextViewManager+Selection.swift
 //  Sequential-Text-Interaction
 //
-//  Created by Frederik Handberg on 02/12/2025.
+//  Created by Frederik Handberg on 06/12/2025.
 //
 
 import AppKit
-import SwiftUI
-import Combine
 
-enum SequentialNavigationDirection {
-    case up
-    case down
-    case left
-    case right
-}
+// MARK: - Extension: Selection
 
-@Observable
-class SequentialTextViewManager {
-    // MARK: - Properties
-    
-    // We keep weak references to avoiding retain cycles, but we need a robust way to sort them.
-    // For this implementation, we assume the ViewRepresentable lifecycle manages registration/deregistration.
-    var textViews: [SequentialTextView] = []
-    
-    // The logic helper for maintaining X-position during vertical movement
-    let caretManager = CaretPositionManager()
-    
-    // Selection State
-    private var isDragging = false
-    private var anchorInfo: (view: SequentialTextView, charIndex: Int)?
-    private var needsSorting = false
-    
-    // Timestamp to prevent SwiftUI gestures from clearing selection immediately after creation
-    private var lastInteractionTime: TimeInterval = 0
-    
-    var isCurrentlyDragging: Bool { isDragging }
-    
-    // MARK: - Registration
-    
-    func register(_ textView: SequentialTextView) {
-        if !textViews.contains(textView) {
-            textViews.append(textView)
-            textView.selectionManager = self
-            needsSorting = true
-            log("Manager: Registered TextView. Total: \(textViews.count)")
-        }
-    }
-    
-    func unregister(_ textView: SequentialTextView) {
-        textViews.removeAll { $0 == textView }
-    }
-    
-    /// Sorts views based on their window Y-coordinates to determine "Next" and "Previous"
-    private func sortViewsIfNeeded() {
-        guard needsSorting else { return }
-        
-        // Top-most views have higher Y values in standard window coordinates.
-        // If the view is flipped (like our scrollview content often is), we might need to check geometry.
-        // Assuming standard sorting logic from previous file:
-        textViews.sort { v1, v2 in
-            let y1 = v1.convert(v1.bounds.origin, to: nil).y
-            let y2 = v2.convert(v2.bounds.origin, to: nil).y
-            return y1 > y2 // Higher Y = Higher on screen
-        }
-        
-        needsSorting = false
-        log("Manager: Sorted views")
-    }
-    
-    // MARK: - Global Navigation
-    
-    /// Moves caret to the start of the very first text view (Cmd + Up)
-    func handleGlobalStart() {
-        sortViewsIfNeeded()
-        
-        guard let firstView = textViews.first else { return }
-        
-        log("Manager: Handling Global Start")
-        
-        // 1. Clear existing selections
-        clearAllSelections(except: nil)
-        
-        // 2. Focus the first view
-        firstView.window?.makeFirstResponder(firstView)
-        
-        // 3. Move caret to index 0
-        firstView.setSelectedRange(NSRange(location: 0, length: 0))
-        firstView.scrollRangeToVisible(NSRange(location: 0, length: 0))
-        
-        // 4. Reset vertical memory
-        caretManager.reset()
-    }
-    
-    /// Moves caret to the end of the very last text view (Cmd + Down)
-    func handleGlobalEnd() {
-        sortViewsIfNeeded()
-        
-        guard let lastView = textViews.last else { return }
-        
-        log("Manager: Handling Global End")
-        
-        // 1. Clear existing selections
-        clearAllSelections(except: nil)
-        
-        // 2. Focus the last view
-        lastView.window?.makeFirstResponder(lastView)
-        
-        // 3. Move caret to end
-        let end = lastView.string.count
-        lastView.setSelectedRange(NSRange(location: end, length: 0))
-        lastView.scrollRangeToVisible(NSRange(location: end, length: 0))
-        
-        // 4. Reset vertical memory
-        caretManager.reset()
-    }
-    
-    // MARK: - Character Navigation (Arrow Keys)
-    
-    /// Called by a view when the caret hits a boundary (Top of view + Up Arrow, or Bottom + Down Arrow)
-    func handleBoundaryNavigation(from view: SequentialTextView, direction: SequentialNavigationDirection) {
-        sortViewsIfNeeded()
-        
-        guard let currentIndex = textViews.firstIndex(of: view) else {
-            log("handleBoundaryNavigation: Current view not found in registry")
-            return
-        }
-        
-        log(" [Manager] Boundary Navigation: Direction \(direction) from View \(currentIndex)")
-        
-        // 1. Identify the Target View
-        var targetView: SequentialTextView?
-        
-        switch direction {
-        case .up:
-            if currentIndex > 0 {
-                targetView = textViews[currentIndex - 1]
-            } else {
-                log(" [Manager] Global Top Hit. Resetting Manager.")
-                // BOUNDARY HIT: Top of the first view
-                // Move caret to absolute start (Index 0)
-                view.setSelectedRange(NSRange(location: 0, length: 0))
-                view.scrollRangeToVisible(NSRange(location: 0, length: 0))
-                caretManager.reset() // Clear vertical X memory
-                return
-            }
-            
-        case .down:
-            if currentIndex < textViews.count - 1 {
-                targetView = textViews[currentIndex + 1]
-            } else {
-                log(" [Manager] Global Bottom Hit. Resetting Manager.")
-                // BOUNDARY HIT: Bottom of the last view
-                // Move caret to absolute end
-                let end = view.string.count
-                view.setSelectedRange(NSRange(location: end, length: 0))
-                view.scrollRangeToVisible(NSRange(location: end, length: 0))
-                caretManager.reset() // Clear vertical X memory
-                return
-            }
-            
-        case .left:
-            if currentIndex > 0 { targetView = textViews[currentIndex - 1] }
-            
-        case .right:
-            if currentIndex < textViews.count - 1 { targetView = textViews[currentIndex + 1] }
-        }
-        
-        guard let target = targetView else {
-            log("handleBoundaryNavigation: No target view found in direction \(direction)")
-            return
-        }
-        
-        log("handleBoundaryNavigation: Moving from view \(currentIndex) to view \(textViews.firstIndex(of: target) ?? -1)")
-        
-        // Store X position if needed (only for Up/Down)
-        if (direction == .up || direction == .down) {
-            if !caretManager.hasStoredPosition {
-                log(" [Manager] No X stored. Asking view to store current X now.")
-                caretManager.storeCurrentXPosition(from: view)
-            } else {
-                log(" [Manager] X already stored (\(caretManager.currentXDescription)). Reusing it.")
-            }
-        } else {
-            // Horizontal moves kill vertical memory
-            caretManager.reset()
-        }
-        
-        // 2. Focus the Target
-        target.window?.makeFirstResponder(target)
-        
-        // Determine New Insertion Index
-        let newIndex: Int
-        switch direction {
-        case .up:
-            log("Moving up")
-            newIndex = caretManager.calculateCaretPosition(in: target, preferEnd: true)
-        case .down:
-            log("Moving down")
-            newIndex = caretManager.calculateCaretPosition(in: target, preferEnd: false)
-        case .left:
-            log("Moving left")
-            newIndex = target.string.count
-        case .right:
-            log("Moving right")
-            // Right Arrow: Jump to the very START of the next block
-            newIndex = 0
-        }
-        
-        // 3. Place Caret
-        target.setSelectedRange(NSRange(location: newIndex, length: 0))
-        target.scrollRangeToVisible(NSRange(location: newIndex, length: 0))
-    }
-    
-    // MARK: - Word Navigation
-    
-    /// Handles Option + Left Arrow crossing into the previous view.
-    /// Standard behavior dictates this should select the *start* of the last word in the previous view.
-    func handleWordLeftBoundary(from view: SequentialTextView) {
-        sortViewsIfNeeded()
-        
-        // 1. Check if there is a previous view (Index > 0)
-        guard let currentIndex = textViews.firstIndex(of: view),
-              currentIndex > 0 else {
-                  log("No previous view to navigate to.")
-            return
-        }
-        
-        // 2. Identify Next View
-        let target = textViews[currentIndex - 1]
-        
-        // 3. Focus the Target
-        target.window?.makeFirstResponder(target)
-        
-        // 4. Perform the Word Move
-        // Placing the caret at the end of the text.
-        // Then trigger `moveWordLeft`.
-        // This calculates the jump to the start of the last word
-        let end = target.string.count
-        target.setSelectedRange(NSRange(location: end, length: 0))
-        target.moveWordLeft(nil)
-        
-        // 5. Reset vertical memory
-        caretManager.reset()
-    }
-    
-    /// Handles Option + Right Arrow crossing into the next view.
-    /// Standard behavior dictates this should select the *end* of the first word in the next view.
-    func handleWordRightBoundary(from view: SequentialTextView) {
-        sortViewsIfNeeded()
-        
-        // 1. Check if there is a next view
-        guard let currentIndex = textViews.firstIndex(of: view),
-              currentIndex < textViews.count - 1 else {
-            log("No next view to navigate to.")
-            return
-        }
-        
-        // 2. Identify Next View
-        let target = textViews[currentIndex + 1]
-        
-        // 3. Focus the Target
-        target.window?.makeFirstResponder(target)
-        
-        // 4. Perform the Word Move
-        // Placing the caret at the start (0) and then programmatically trigger a word-right move.
-        // This leverages Cocoa's native logic to skip whitespace and find the word ending.
-        target.setSelectedRange(NSRange(location: 0, length: 0))
-        target.moveWordRight(nil)
-        
-        // 5. Reset vertical memory
-        caretManager.reset()
-    }
+extension SequentialTextViewManager {
     
     // MARK: - Mouse Selection (Dragging)
     
@@ -353,7 +91,235 @@ class SequentialTextViewManager {
                              to: clickedView, currentIndex: clickIndex)
     }
     
-    // MARK: - Deletion
+    // MARK: - Shift + Arrow Navigation (Selection Extension)
+    
+    /// Ensures an anchor exists for selection operations
+    func ensureSelectionAnchor(in view: SequentialTextView) {
+        if anchorInfo == nil {
+            let range = view.selectedRange()
+            // If there's an existing selection, anchor at the opposite end from where user is extending
+            // Otherwise, anchor at current cursor position
+            let anchorIndex = range.length > 0 ? range.location : range.location
+            anchorInfo = (view, anchorIndex)
+            log("Manager: Anchor established at index \(anchorIndex)")
+        }
+    }
+    
+    /// Returns the "head" of the selection - the end that moves during shift+arrow operations
+    /// This is the end opposite from the anchor
+    func getSelectionHead(in view: SequentialTextView) -> Int {
+        guard let anchor = anchorInfo else {
+            // If no anchor use current position
+            return view.selectedRange().location
+        }
+        
+        if anchor.view != view {
+            // Different view
+            // Need to figure out which boundary based on view order
+            sortViewsIfNeeded()
+            
+            guard let anchorViewIndex = textViews.firstIndex(of: anchor.view),
+                  let currentViewIndex = textViews.firstIndex(of: view) else {
+                // Fallback if we can't determine order
+                return view.selectedRange().location
+            }
+            
+            let range = view.selectedRange()
+            
+            if currentViewIndex > anchorViewIndex {
+                // Current view is AFTER anchor view (forward selection)
+                // Head is at the end of the selection in this view
+                let head = range.location + range.length
+                log(" > getSelectionHead: Cross-view forward (anchor in view \(anchorViewIndex), current view \(currentViewIndex)), head at end (\(head))")
+                return head
+            } else {
+                // Current view is BEFORE anchor view (backward selection)
+                // Head is at the start of the selection in this view
+                log(" > getSelectionHead: Cross-view backward (anchor in view \(anchorViewIndex), current view \(currentViewIndex)), head at start (\(range.location))")
+                return range.location
+            }
+        }
+        
+        let range = view.selectedRange()
+        
+        // If we have a selection, the head is whichever end isn't the anchor
+        if range.length > 0 {
+            let rangeStart = range.location
+            let rangeEnd = range.location + range.length
+            
+            // Is anchor at the start or end of current selection?
+            if anchor.charIndex == rangeStart {
+                // Anchor is at start, head is at end
+                log(" > getSelectionHead: Anchor at start (\(rangeStart)), head at end (\(rangeEnd))")
+                return rangeEnd
+            } else if anchor.charIndex == rangeEnd {
+                // Anchor is at end, head is at start
+                log(" > getSelectionHead: Anchor at end (\(rangeEnd)), head at start (\(rangeStart))")
+                return rangeStart
+            } else {
+                // Anchor is somewhere in the middle or outside current range
+                // This shouldn't normally happen, but handle it gracefully
+                // Assume the head is the end farther from the anchor
+                let distToStart = abs(anchor.charIndex - rangeStart)
+                let distToEnd = abs(anchor.charIndex - rangeEnd)
+                let head = distToEnd > distToStart ? rangeEnd : rangeStart
+                log(" > getSelectionHead: Anchor at \(anchor.charIndex) (middle), head at \(head)")
+                return head
+            }
+        } else {
+            // Zero-length selection - head equals anchor
+            return range.location
+        }
+    }
+    
+    /// Extends selection within a single view from anchor to target index
+    func extendSelection(in view: SequentialTextView, to targetIndex: Int) {
+        guard let anchor = anchorInfo else {
+            log("Manager: No anchor for selection extension")
+            return
+        }
+        
+        // If anchor is in a different view, use cross-view logic
+        if anchor.view != view {
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: view, currentIndex: targetIndex)
+        } else {
+            // Same view: simple range calculation
+            let start = min(anchor.charIndex, targetIndex)
+            let length = abs(targetIndex - anchor.charIndex)
+            view.setSelectedRange(NSRange(location: start, length: length))
+            log("Manager: Extended selection in view to [\(start), \(length)]")
+        }
+    }
+    
+    /// Handles Shift+Arrow boundary crossing (extends selection to adjacent view)
+    func handleShiftBoundaryNavigation(from view: SequentialTextView, direction: SequentialNavigationDirection) {
+        sortViewsIfNeeded()
+        
+        guard let currentIndex = textViews.firstIndex(of: view) else { return }
+        
+        log("Manager: Shift+Boundary Navigation from view \(currentIndex), direction \(direction)")
+        
+        // Make sure anchor exists
+        ensureSelectionAnchor(in: view)
+        
+        guard let anchor = anchorInfo else { return }
+        
+        // Get the selection head (the moving end)
+        let selectionHead = getSelectionHead(in: view)
+        log(" > Selection head at index \(selectionHead)")
+        
+        // Find target view
+        var targetView: SequentialTextView?
+        var targetIndex: Int = 0
+        
+        switch direction {
+        case .up:
+            if currentIndex > 0 {
+                targetView = textViews[currentIndex - 1]
+                // Store X if needed
+                if !caretManager.hasStoredPosition {
+                    caretManager.storeCurrentXPositionAt(index: selectionHead, in: view)
+                }
+                targetIndex = caretManager.calculateCaretPosition(in: targetView!, preferEnd: true)
+            } else {
+                // At global top: extend to start of current view
+                targetIndex = 0
+                targetView = view
+            }
+            
+        case .down:
+            if currentIndex < textViews.count - 1 {
+                targetView = textViews[currentIndex + 1]
+                // Store X if needed
+                if !caretManager.hasStoredPosition {
+                    caretManager.storeCurrentXPositionAt(index: selectionHead, in: view)
+                }
+                targetIndex = caretManager.calculateCaretPosition(in: targetView!, preferEnd: false)
+            } else {
+                // At global bottom: extend to end of current view
+                targetIndex = view.string.count
+                targetView = view
+            }
+            
+        case .left:
+            if currentIndex > 0 {
+                targetView = textViews[currentIndex - 1]
+                targetIndex = targetView!.string.count
+            } else {
+                // At global left: extend to start
+                targetIndex = 0
+                targetView = view
+            }
+            caretManager.reset()
+            
+        case .right:
+            if currentIndex < textViews.count - 1 {
+                targetView = textViews[currentIndex + 1]
+                targetIndex = 0
+            } else {
+                // At global right: extend to end
+                targetIndex = view.string.count
+                targetView = view
+            }
+            caretManager.reset()
+        }
+        
+        guard let target = targetView else { return }
+        
+        // Focus the target view
+        target.window?.makeFirstResponder(target)
+        
+        // Update selection chain
+        updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                             to: target, currentIndex: targetIndex)
+    }
+    
+    /// Handles Cmd+Shift+Up (select from current position to start of document)
+    func handleGlobalShiftStart(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        log("Manager: Global Shift Start")
+        
+        // Establish anchor at current position
+        ensureSelectionAnchor(in: view)
+        
+        guard let anchor = anchorInfo,
+              let firstView = textViews.first else { return }
+        
+        // Focus first view
+        firstView.window?.makeFirstResponder(firstView)
+        
+        // Select from anchor to start of first view
+        updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                             to: firstView, currentIndex: 0)
+        
+        caretManager.reset()
+    }
+    
+    /// Handles Cmd+Shift+Down (select from current position to end of document)
+    func handleGlobalShiftEnd(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        log("Manager: Global Shift End")
+        
+        // Establish anchor at current position
+        ensureSelectionAnchor(in: view)
+        
+        guard let anchor = anchorInfo,
+              let lastView = textViews.last else { return }
+        
+        // Focus last view
+        lastView.window?.makeFirstResponder(lastView)
+        
+        // Select from anchor to end of last view
+        updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                             to: lastView, currentIndex: lastView.string.count)
+        
+        caretManager.reset()
+    }
+    
+    // MARK: - Deletion & Editing
     
     func handleMultiViewDelete() {
         sortViewsIfNeeded()
@@ -426,9 +392,9 @@ class SequentialTextViewManager {
         participatingViews.forEach { if $0 != firstView { $0.didChangeText() } }
     }
     
-    // MARK: - Helper: Chain Selection Logic
+    // MARK: - Helper: (Chain, Collapse, HitTest)
     
-    private func updateSelectionChain(from startView: SequentialTextView, anchorIndex: Int,
+    func updateSelectionChain(from startView: SequentialTextView, anchorIndex: Int,
                                       to endView: SequentialTextView, currentIndex: Int) {
         guard let startIndex = textViews.firstIndex(of: startView),
               let endIndex = textViews.firstIndex(of: endView) else {
@@ -441,7 +407,7 @@ class SequentialTextViewManager {
         
         for (i, view) in textViews.enumerated() {
             // Enable forced display so views look selected even when not focused
-            view.forceInactiveSelectionDisplay = true //
+            view.forceInactiveSelectionDisplay = true
             
             // 1. The Anchor View
             if i == startIndex {
@@ -495,17 +461,17 @@ class SequentialTextViewManager {
         }
     }
     
+    enum SelectionBoundary {
+        case start // Top/Left (Up/Left arrow)
+        case end   // Bottom/Right (Down/Right arrow)
+    }
+    
     // MARK: - Multi-View Selection Helpers
     
     /// Checks if more than one view has a selection, or if a single view has a selection
     /// but we need to treat it globally.
     var hasMultiViewSelection: Bool {
         return textViews.filter { $0.selectedRange().length > 0 }.count > 1
-    }
-    
-    enum SelectionBoundary {
-        case start // Top/Left (Up/Left arrow)
-        case end   // Bottom/Right (Down/Right arrow)
     }
     
     /// Finds the view and character index corresponding to the start or end of the entire selection chain.
@@ -529,40 +495,6 @@ class SequentialTextViewManager {
         }
     }
     
-    // MARK: - Helper: Hit Testing
-    
-    /// Finds which view the mouse is over, or the closest one if in a gap
-    private func findTargetView(at windowPoint: NSPoint) -> (view: SequentialTextView, isInGap: Bool)? {
-        // Direct Hit
-        for view in textViews {
-            let localPoint = view.convert(windowPoint, from: nil)
-            if view.bounds.contains(localPoint) {
-                return (view, false)
-            }
-        }
-        
-        // Gap Hit: Find closest view vertically
-        let closest = textViews.min(by: { v1, v2 in
-            let p1 = v1.convert(NSPoint.zero, to: nil)
-            let p2 = v2.convert(NSPoint.zero, to: nil)
-            return abs(p1.y - windowPoint.y) < abs(p2.y - windowPoint.y)
-        })
-        
-        if let found = closest {
-            // log("findTargetView: Closest view found via gap check")
-            return (found, true)
-        }
-        
-        log("findTargetView: No view found")
-        return nil
-    }
-    
-    // MARK: - Utilities
-    
-    private func updateInteractionTime() {
-        lastInteractionTime = Date().timeIntervalSinceReferenceDate
-    }
-    
     func clearAllSelections(except keptView: SequentialTextView?) {
         // PROTECTION: If this is an external clear request (keptView == nil)
         // AND we are either actively dragging OR the user interacted very recently,
@@ -578,6 +510,16 @@ class SequentialTextViewManager {
         log("clearAllSelections: Clearing selection (except keptView)")
         for view in textViews where view != keptView {
             view.setSelectedRange(NSRange(location: 0, length: 0))
+        }
+    }
+    
+    /// Select All (Cmd+A) support
+    func selectAllViews() {
+        log("selectAll: Selecting all text across views")
+        for view in textViews {
+            view.forceInactiveSelectionDisplay = true
+            view.setSelectedRange(NSRange(location: 0, length: view.string.count))
+            view.needsDisplay = true
         }
     }
     
@@ -605,13 +547,29 @@ class SequentialTextViewManager {
         return hasSelection ? result : nil
     }
     
-    /// Select All (Cmd+A) support
-    func selectAllViews() {
-        log("selectAll: Selecting all text across views")
+    /// Finds which view the mouse is over, or the closest one if in a gap
+    private func findTargetView(at windowPoint: NSPoint) -> (view: SequentialTextView, isInGap: Bool)? {
+        // Direct Hit
         for view in textViews {
-            view.forceInactiveSelectionDisplay = true
-            view.setSelectedRange(NSRange(location: 0, length: view.string.count))
-            view.needsDisplay = true
+            let localPoint = view.convert(windowPoint, from: nil)
+            if view.bounds.contains(localPoint) {
+                return (view, false)
+            }
         }
+        
+        // Gap Hit: Find closest view vertically
+        let closest = textViews.min(by: { v1, v2 in
+            let p1 = v1.convert(NSPoint.zero, to: nil)
+            let p2 = v2.convert(NSPoint.zero, to: nil)
+            return abs(p1.y - windowPoint.y) < abs(p2.y - windowPoint.y)
+        })
+        
+        if let found = closest {
+            // log("findTargetView: Closest view found via gap check")
+            return (found, true)
+        }
+        
+        log("findTargetView: No view found")
+        return nil
     }
 }

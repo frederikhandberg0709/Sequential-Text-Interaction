@@ -15,6 +15,7 @@ struct SequentialBlockEditor: View {
         Block(text: "Start here at the very end of this long sentence."),
         Block(text: "Tiny."),
         Block(text: "End here. Ideally the caret is far to the right."),
+        Block(text: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla sit amet massa et lectus auctor finibus.\n\nVivamus a congue elit, ut viverra orci. Phasellus vel urna id nisi elementum placerat. Pellentesque dapibus urna vitae pulvinar facilisis. Fusce orci elit, consectetur at vulputate et, vehicula sit amet elit.\nNunc egestas ultrices diam ac dapibus. Ut gravida, leo vel ullamcorper varius, erat risus faucibus ligula, bibendum viverra eros urna quis ex. Sed sit amet orci leo. Sed elit felis, fringilla in nisi imperdiet, euismod placerat ligula. Quisque aliquet nibh nisi, ac elementum arcu mollis a.\nNullam dapibus lectus at aliquet condimentum. Fusce varius mauris eros, in tempor metus blandit id. Aliquam vestibulum lacus ac nulla tristique, a ultrices nibh mollis. Vivamus viverra felis sed velit pretium, non tempor ex tristique."),
         Block(text: "WWWWWWWWWW"),
         Block(text: "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"),
         Block(text: "WWWWWWWWWW"),

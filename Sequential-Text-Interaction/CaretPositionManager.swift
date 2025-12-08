@@ -45,18 +45,26 @@ class CaretPositionManager {
             desiredXPosition = nil
             return
         }
+        storeCurrentXPositionAt(index: selectedRange.location, in: textView)
+    }
+    
+    /// Store X position for a specific character index (used during selection operations)
+    func storeCurrentXPositionAt(index: Int, in textView: NSTextView) {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer
+        else { return }
         
         layoutManager.ensureLayout(for: textContainer)
         
         // 1. Handle Empty String
         if textView.string.isEmpty {
             desiredXPosition = 0
-            log("storeCurrentXPosition: Empty text, storing X=0")
+            log("storeCurrentXPositionAt: Empty text, storing X=0")
             return
         }
         
         // 2. Handle End of Text
-        if selectedRange.location >= textView.string.count {
+        if index >= textView.string.count {
             let lastCharIndex = max(0, textView.string.count - 1)
             let glyphIndex = layoutManager.glyphIndexForCharacter(at: lastCharIndex)
             
@@ -66,19 +74,19 @@ class CaretPositionManager {
             )
             
             desiredXPosition = rect.maxX
-            log("storeCurrentXPosition: At end of text, stored X=\(rect.maxX)")
+            log("storeCurrentXPositionAt: At end of text, stored X=\(rect.maxX)")
             return
         }
         
         // 3. Handle Normal Character
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: selectedRange.location)
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: index)
         let rect = layoutManager.boundingRect(
             forGlyphRange: NSRange(location: glyphIndex, length: 1),
             in: textContainer
         )
         
         desiredXPosition = rect.origin.x
-        log("storeCurrentXPosition: Stored X=\(rect.origin.x) at character \(selectedRange.location)")
+        log("storeCurrentXPositionAt: Stored X=\(rect.origin.x) at character \(index)")
     }
     
     // MARK: - Navigation Logic
@@ -88,17 +96,25 @@ class CaretPositionManager {
         in textView: NSTextView,
         direction: SequentialNavigationDirection
     ) -> Int? {
+        let selectedRange = textView.selectedRange()
+        return calculateInternalVerticalMoveFrom(index: selectedRange.location, in: textView, direction: direction)
+    }
+    
+    /// Calculates the target index for moving Up/Down from a specific index (used during selection)
+    func calculateInternalVerticalMoveFrom(
+        index: Int,
+        in textView: NSTextView,
+        direction: SequentialNavigationDirection
+    ) -> Int? {
         guard let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer,
               let storedX = desiredXPosition else {
             return nil
         }
         
-        let selectedRange = textView.selectedRange()
-        
         // Robustly determine current line
         // If at end of string, peek back one char to get the line that "owns" the end.
-        let probeIndex = (selectedRange.location == textView.string.count && selectedRange.location > 0) ? selectedRange.location - 1 : selectedRange.location
+        let probeIndex = (index == textView.string.count && index > 0) ? index - 1 : index
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: probeIndex)
         
         // Get current line geometry
