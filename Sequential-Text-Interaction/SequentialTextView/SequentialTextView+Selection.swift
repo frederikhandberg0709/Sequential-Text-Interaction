@@ -160,7 +160,7 @@ extension SequentialTextView {
         manager.extendSelection(in: self, to: newLocation)
     }
     
-    // MARK: - Shift + Option + Arrow Keys (Word Selection Extension)
+    // MARK: - Shift + Option + Left/Right (Word Selection Extension)
 
     override func moveWordLeftAndModifySelection(_ sender: Any?) {
         log("SequentialTextView: moveWordLeftAndModifySelection (Shift+Option+Left)")
@@ -218,6 +218,117 @@ extension SequentialTextView {
         // 5. Find next word boundary
         let targetIndex = findNextWordBoundary(from: selectionHead)
         manager.extendSelection(in: self, to: targetIndex)
+    }
+    
+    // MARK: - Option + Shift + Arrow Keys (Paragraph Selection Extension)
+
+    override func moveParagraphBackwardAndModifySelection(_ sender: Any?) {
+        log("SequentialTextView: moveParagraphBackwardAndModifySelection (Option+Shift+Up)")
+        
+        guard let manager = selectionManager else {
+            super.moveParagraphBackwardAndModifySelection(sender)
+            return
+        }
+        
+        // 1. Establish anchor if needed
+        manager.ensureSelectionAnchor(in: self)
+        
+        // 2. Get current selection head
+        let selectionHead = manager.getSelectionHead(in: self)
+        
+        // 3. Find previous paragraph boundary
+        let targetIndex = findPreviousParagraphBoundary(from: selectionHead)
+        
+        // 4. Check if we're at the start (need to cross views)
+        if targetIndex == 0 && selectionHead == 0 {
+            log("SequentialTextView: Option+Shift+Up at boundary, delegating to manager")
+            manager.handleShiftParagraphBackwardBoundary(from: self)
+            return
+        }
+        
+        // 5. Reset vertical memory
+        manager.caretManager.reset()
+        
+        // 6. Extend selection to paragraph boundary
+        manager.extendSelection(in: self, to: targetIndex)
+    }
+
+    override func moveParagraphForwardAndModifySelection(_ sender: Any?) {
+        log("SequentialTextView: moveParagraphForwardAndModifySelection (Option+Shift+Down)")
+        
+        guard let manager = selectionManager else {
+            super.moveParagraphForwardAndModifySelection(sender)
+            return
+        }
+        
+        // 1. Establish anchor if needed
+        manager.ensureSelectionAnchor(in: self)
+        
+        // 2. Get current selection head
+        let selectionHead = manager.getSelectionHead(in: self)
+        
+        // 3. Find next paragraph boundary
+        let targetIndex = findNextParagraphBoundary(from: selectionHead)
+        
+        // 4. Check if we're at the end (need to cross views)
+        if targetIndex == string.count && selectionHead == string.count {
+            log("SequentialTextView: Option+Shift+Down at boundary, delegating to manager")
+            manager.handleShiftParagraphForwardBoundary(from: self)
+            return
+        }
+        
+        // 5. Reset vertical memory
+        manager.caretManager.reset()
+        
+        // 6. Extend selection to paragraph boundary
+        manager.extendSelection(in: self, to: targetIndex)
+    }
+
+    // MARK: - Paragraph Boundary Helpers
+
+    private func findPreviousParagraphBoundary(from index: Int) -> Int {
+        guard index > 0 else { return 0 }
+        
+        let text = string as NSString
+        var currentIndex = index
+        
+        // If we're at a newline, skip it first
+        if currentIndex > 0 && currentIndex <= text.length {
+            let charBefore = text.character(at: currentIndex - 1)
+            if charBefore == 10 { // '\n'
+                currentIndex -= 1
+            }
+        }
+        
+        // Find the previous newline
+        while currentIndex > 0 {
+            let char = text.character(at: currentIndex - 1)
+            if char == 10 { // '\n'
+                return currentIndex
+            }
+            currentIndex -= 1
+        }
+        
+        return 0
+    }
+
+    private func findNextParagraphBoundary(from index: Int) -> Int {
+        guard index < string.count else { return string.count }
+        
+        let text = string as NSString
+        var currentIndex = index
+        
+        // Find the next newline
+        while currentIndex < text.length {
+            let char = text.character(at: currentIndex)
+            if char == 10 { // '\n'
+                // Move past the newline
+                return min(currentIndex + 1, string.count)
+            }
+            currentIndex += 1
+        }
+        
+        return string.count
     }
     
     // MARK: - Cmd+Shift+Arrow (Global Selection Extension)

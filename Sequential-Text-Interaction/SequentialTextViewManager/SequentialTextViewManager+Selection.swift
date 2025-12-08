@@ -275,7 +275,7 @@ extension SequentialTextViewManager {
                              to: target, currentIndex: targetIndex)
     }
     
-    // MARK: - Shift + Option + Arrow (Word Selection Extension)
+    // MARK: - Shift + Option + Left/Right (Word Selection Extension)
 
     func handleShiftWordLeftBoundary(from view: SequentialTextView) {
         sortViewsIfNeeded()
@@ -328,6 +328,106 @@ extension SequentialTextViewManager {
         }
         
         caretManager.reset()
+    }
+    
+    // MARK: - Option + Shift + Up/Down (Paragraph Selection Extension)
+
+    func handleShiftParagraphBackwardBoundary(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        guard let currentIndex = textViews.firstIndex(of: view) else { return }
+        
+        log("Manager: Option+Shift+Up boundary from view \(currentIndex)")
+        
+        ensureSelectionAnchor(in: view)
+        guard let anchor = anchorInfo else { return }
+        
+        // Move to previous view
+        if currentIndex > 0 {
+            let targetView = textViews[currentIndex - 1]
+            targetView.window?.makeFirstResponder(targetView)
+            
+            // Find the last paragraph boundary in the previous view
+            let targetIndex = findLastParagraphBoundary(in: targetView)
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: targetView, currentIndex: targetIndex)
+        } else {
+            // At global start: extend to start of current view
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: view, currentIndex: 0)
+        }
+        
+        caretManager.reset()
+    }
+
+    func handleShiftParagraphForwardBoundary(from view: SequentialTextView) {
+        sortViewsIfNeeded()
+        
+        guard let currentIndex = textViews.firstIndex(of: view) else { return }
+        
+        log("Manager: Option+Shift+Down boundary from view \(currentIndex)")
+        
+        ensureSelectionAnchor(in: view)
+        guard let anchor = anchorInfo else { return }
+        
+        // Move to next view
+        if currentIndex < textViews.count - 1 {
+            let targetView = textViews[currentIndex + 1]
+            targetView.window?.makeFirstResponder(targetView)
+            
+            // Find the first paragraph boundary in the next view
+            let targetIndex = findFirstParagraphBoundary(in: targetView)
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: targetView, currentIndex: targetIndex)
+        } else {
+            // At global end: extend to end of current view
+            updateSelectionChain(from: anchor.view, anchorIndex: anchor.charIndex,
+                                 to: view, currentIndex: view.string.count)
+        }
+        
+        caretManager.reset()
+    }
+
+    // MARK: - Paragraph Boundary Helpers
+
+    private func findLastParagraphBoundary(in view: SequentialTextView) -> Int {
+        let text = view.string as NSString
+        var currentIndex = text.length
+        
+        // Skip trailing newline if present
+        if currentIndex > 0 {
+            let lastChar = text.character(at: currentIndex - 1)
+            if lastChar == 10 { // '\n'
+                currentIndex -= 1
+            }
+        }
+        
+        // Find the previous newline (start of last paragraph)
+        while currentIndex > 0 {
+            let char = text.character(at: currentIndex - 1)
+            if char == 10 { // '\n'
+                return currentIndex
+            }
+            currentIndex -= 1
+        }
+        
+        return 0
+    }
+
+    private func findFirstParagraphBoundary(in view: SequentialTextView) -> Int {
+        let text = view.string as NSString
+        var currentIndex = 0
+        
+        // Find the first newline
+        while currentIndex < text.length {
+            let char = text.character(at: currentIndex)
+            if char == 10 { // '\n'
+                return min(currentIndex + 1, view.string.count)
+            }
+            currentIndex += 1
+        }
+        
+        return view.string.count
     }
     
     // MARK: - Cmd+Shift+Arrow (Global Selection Extension)
