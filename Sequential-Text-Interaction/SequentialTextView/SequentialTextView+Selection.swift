@@ -118,7 +118,8 @@ extension SequentialTextView {
         manager.ensureSelectionAnchor(in: self)
         
         // 2. Check for boundary
-        if selectedRange().location == 0 {
+        let selectionHead = manager.getSelectionHead(in: self)
+        if selectionHead == 0 {
             log("SequentialTextView: Shift+Left at boundary, delegating to manager")
             manager.handleShiftBoundaryNavigation(from: self, direction: .left)
             return
@@ -128,8 +129,7 @@ extension SequentialTextView {
         manager.caretManager.reset()
         
         // 4. Internal selection extension
-        let currentRange = selectedRange()
-        let newLocation = max(0, currentRange.location - 1)
+        let newLocation = max(0, selectionHead - 1)
         manager.extendSelection(in: self, to: newLocation)
     }
     
@@ -145,7 +145,8 @@ extension SequentialTextView {
         manager.ensureSelectionAnchor(in: self)
         
         // 2. Check for boundary
-        if selectedRange().location == string.count {
+        let selectionHead = manager.getSelectionHead(in: self)
+        if selectionHead == string.count {
             log("SequentialTextView: Shift+Right at boundary, delegating to manager")
             manager.handleShiftBoundaryNavigation(from: self, direction: .right)
             return
@@ -155,8 +156,7 @@ extension SequentialTextView {
         manager.caretManager.reset()
         
         // 4. Internal selection extension
-        let currentRange = selectedRange()
-        let newLocation = min(string.count, currentRange.location + 1)
+        let newLocation = min(string.count, selectionHead + 1)
         manager.extendSelection(in: self, to: newLocation)
     }
     
