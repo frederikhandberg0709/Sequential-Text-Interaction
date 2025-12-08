@@ -2,6 +2,8 @@
 
 This repository is an experimental macOS AppKit project exploring caret navigation and text selection across multiple sequential `NSTextView`s.
 
+https://github.com/user-attachments/assets/49c98404-1b80-4c0d-ba28-6977ff7718aa
+
 ## The goal was to enable
 
 **Seamless cursor movement with arrow keys**
